@@ -1,0 +1,52 @@
+name: Ping Supabase (voorkom auto-pause)
+
+# ─────────────────────────────────────────────────────────────
+# Waarom dit bestaat:
+# Supabase pauzeert projecten op de gratis tier automatisch na
+# 7 dagen zonder activiteit. Deze workflow doet elke 5 dagen een
+# heel lichte, read-only aanvraag richting de database, zodat
+# Supabase het project als "actief" blijft beschouwen.
+# Er wordt niets geschreven, gewijzigd of verwijderd.
+# ─────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    # Draait elke 5 dagen om 03:00 UTC.
+    # Cron-syntax kent geen "elke 5 dagen" native optie op kalenderbasis,
+    # dus dit wordt aangestuurd op dag-van-de-maand modulo 5.
+    # In de praktijk komt dit neer op: 1, 6, 11, 16, 21, 26, 31 van elke maand.
+    - cron: '0 3 1,6,11,16,21,26,31 * *'
+  # Handmatig kunnen starten vanuit de GitHub-interface, handig om te testen
+  workflow_dispatch:
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lichte read-only aanvraag naar Supabase sturen
+        env:
+          # Deze twee waarden komen uit GitHub Secrets, nooit hardcoded.
+          # LET OP: dit is bewust de SERVICE ROLE key, niet de publieke
+          # "anon"/"publishable" key. De database is beveiligd met RLS-regels
+          # die zeggen "alleen ingelogde gebruikers mogen lezen" — de anon key
+          # zou hier dus een foutmelding krijgen. De service_role key omzeilt
+          # die regels veilig, wat precies de bedoeling is voor een
+          # achtergrondtaak als deze. Deze sleutel mag NOOIT in de website
+          # zelf terechtkomen, alleen hier in GitHub Secrets.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          # We doen een simpele SELECT met "limit=1" op een bestaande tabel.
+          # Dit leest hooguit één rij en schrijft niets.
+          # Pas "buitengast_kv" hieronder aan als je tabel anders heet.
+          #
+          # -sS  : toon fouten, maar geen voortgangsbalk (rustige logs)
+          # -f   : laat curl falen (exit code != 0) bij een HTTP-foutstatus,
+          #        zodat de GitHub Action rood kleurt als er iets misgaat
+          curl -sS -f \
+            "${SUPABASE_URL}/rest/v1/buitengast_kv?select=key&limit=1" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}"
+
+          echo ""
+          echo "Ping voltooid — Supabase-project telt weer als actief."
