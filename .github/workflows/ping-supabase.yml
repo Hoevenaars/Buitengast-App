@@ -3,19 +3,25 @@ name: Ping Supabase (voorkom auto-pause)
 # ─────────────────────────────────────────────────────────────
 # Waarom dit bestaat:
 # Supabase pauzeert projecten op de gratis tier automatisch na
-# 7 dagen zonder activiteit. Deze workflow doet elke 5 dagen een
-# heel lichte, read-only aanvraag richting de database, zodat
-# Supabase het project als "actief" blijft beschouwen.
+# 7 dagen zonder activiteit. Deze workflow doet twee keer per
+# week een heel lichte, read-only aanvraag richting de database,
+# zodat Supabase het project als "actief" blijft beschouwen.
 # Er wordt niets geschreven, gewijzigd of verwijderd.
+#
+# LET OP - correctie t.o.v. de eerdere versie:
+# Eerst draaide dit op vaste kalenderdagen (1,6,11,16,21,26,31).
+# Niet elke maand heeft 31 dagen, waardoor de tussenpoos soms
+# opliep tot 5-6 dagen — te weinig marge als GitHub een taak
+# een paar uur vertraagt (wat normaal is bij drukte). Nu draait
+# het op vaste weekdagen (maandag + donderdag), wat altijd een
+# tussenpoos van 3-4 dagen geeft, ongeacht de maandlengte.
 # ─────────────────────────────────────────────────────────────
 
 on:
   schedule:
-    # Draait elke 5 dagen om 03:00 UTC.
-    # Cron-syntax kent geen "elke 5 dagen" native optie op kalenderbasis,
-    # dus dit wordt aangestuurd op dag-van-de-maand modulo 5.
-    # In de praktijk komt dit neer op: 1, 6, 11, 16, 21, 26, 31 van elke maand.
-    - cron: '0 3 1,6,11,16,21,26,31 * *'
+    # Elke maandag en donderdag om 03:00 UTC — maximaal 3-4 dagen tussenruimte,
+    # ruim onder de 7-dagen-grens van Supabase, ook bij vertraging.
+    - cron: '0 3 * * 1,4'
   # Handmatig kunnen starten vanuit de GitHub-interface, handig om te testen
   workflow_dispatch:
 
