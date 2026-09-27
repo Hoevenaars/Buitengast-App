@@ -344,8 +344,13 @@ let currentUser = null;
 let screen = 'wachtwoord'; // wachtwoord -> login -> main
 let darkMode = false;
 let wachtwoordDraft = '';
+let nieuwWachtwoord = '';
+let nieuwWachtwoord2 = '';
+let recoveryEmail = '';
 /* Vast e-mailadres van het gedeelde toegangsaccount — dit maak je zelf aan in Supabase (zie handleiding) */
 const ACCESS_EMAIL = 'toegang@buitengast-incheck.nl';
+/* Resetmails moeten hier landen. Supabase Site URL stond op localhost, dan opent de link nergens. */
+const PUBLIC_APP_URL = 'https://hoevenaars.github.io/Buitengast-App/';
 let tab = 'zoeken';       // zoeken | diner | log
 let searchQuery = '';
 let activeBookingId = null;
@@ -549,6 +554,7 @@ function render(){
 
   const root = document.getElementById('root');
   if(screen==='wachtwoord'){ root.innerHTML = renderWachtwoord(); attachWachtwoordHandlers(); }
+  else if(screen==='nieuw-wachtwoord'){ root.innerHTML = renderNieuwWachtwoord(); attachNieuwWachtwoordHandlers(); }
   else if(screen==='login'){ root.innerHTML = renderLogin(); attachLoginHandlers(); }
   else{
     if(currentUser.rol==='Diner' && tab==='zoeken') tab='diner';
@@ -584,9 +590,11 @@ function renderWachtwoord(){
     <label class="field-label">Toegangswachtwoord</label>
     <input type="password" id="wachtwoord-input" placeholder="Wachtwoord" value="${escapeAttr(wachtwoordDraft)}" autofocus>
     <button class="btn btn-primary" id="wachtwoord-submit" style="margin-top:18px;">Ontgrendelen</button>
+    <button class="btn btn-secondary" id="wachtwoord-vergeten" style="margin-top:10px;">Wachtwoord vergeten</button>
   </div>
   <p style="text-align:center;color:var(--text-medium);font-size:14px;">
     Dit wachtwoord beschermt alle gegevens. Deel het alleen met het team.
+    Een vergeten wachtwoord sturen we naar het toegangsaccount, niet naar een persoonlijk adres.
   </p>`;
 }
 function attachWachtwoordHandlers(){
@@ -607,6 +615,55 @@ function attachWachtwoordHandlers(){
     await loadTeamNames();
     screen = 'login';
     render();
+  });
+  document.getElementById('wachtwoord-vergeten').addEventListener('click', async ()=>{
+    const btn = document.getElementById('wachtwoord-vergeten');
+    btn.disabled = true; btn.textContent = 'Bezig…';
+    const { error } = await supabaseClient.auth.resetPasswordForEmail(ACCESS_EMAIL, { redirectTo: PUBLIC_APP_URL });
+    btn.disabled = false; btn.textContent = 'Wachtwoord vergeten';
+    if(error){ showToast('Fout: ' + error.message); return; }
+    showToast('Resetmail verstuurd naar het toegangsaccount');
+  });
+}
+
+function renderNieuwWachtwoord(){
+  const accountRegel = recoveryEmail
+    ? `Nieuw wachtwoord voor <b>${escapeHtml(recoveryEmail)}</b>.`
+    : 'Kies een nieuw wachtwoord voor dit account.';
+  const anderAccount = recoveryEmail && recoveryEmail.toLowerCase() !== ACCESS_EMAIL.toLowerCase();
+  return `
+  <div class="login-hero"><img src="${LOGO_DATA_URI}" alt="Buitengast" style="height:70px;margin-bottom:10px;"><p>Nieuw wachtwoord</p></div>
+  <div class="card">
+    <p style="margin-top:0;color:var(--text-medium);font-size:15px;">${accountRegel}</p>
+    <label class="field-label">Nieuw wachtwoord</label>
+    <input type="password" id="nieuw-wachtwoord" placeholder="Minimaal 6 tekens" value="${escapeAttr(nieuwWachtwoord)}" autofocus>
+    <label class="field-label" style="margin-top:14px;">Herhaal wachtwoord</label>
+    <input type="password" id="nieuw-wachtwoord-2" placeholder="Nog een keer" value="${escapeAttr(nieuwWachtwoord2)}">
+    <button class="btn btn-primary" id="nieuw-wachtwoord-opslaan" style="margin-top:18px;">Wachtwoord opslaan</button>
+  </div>
+  ${anderAccount ? `<p style="text-align:center;color:var(--text-medium);font-size:14px;">
+    Het toegangswachtwoord van de app hoort bij ${escapeHtml(ACCESS_EMAIL)}. Dit scherm wijzigt alleen het account van de resetlink.
+  </p>` : ''}`;
+}
+function attachNieuwWachtwoordHandlers(){
+  document.getElementById('nieuw-wachtwoord').addEventListener('input', e=>{ nieuwWachtwoord = e.target.value; });
+  document.getElementById('nieuw-wachtwoord-2').addEventListener('input', e=>{ nieuwWachtwoord2 = e.target.value; });
+  document.getElementById('nieuw-wachtwoord-opslaan').addEventListener('click', async ()=>{
+    if(nieuwWachtwoord.length < 6){ showToast('Gebruik minimaal 6 tekens'); return; }
+    if(nieuwWachtwoord !== nieuwWachtwoord2){ showToast('De wachtwoorden komen niet overeen'); return; }
+    const btn = document.getElementById('nieuw-wachtwoord-opslaan');
+    btn.disabled = true; btn.textContent = 'Bezig…';
+    const { error } = await supabaseClient.auth.updateUser({ password: nieuwWachtwoord });
+    if(error){
+      btn.disabled = false; btn.textContent = 'Wachtwoord opslaan';
+      showToast('Fout: ' + error.message);
+      return;
+    }
+    nieuwWachtwoord = '';
+    nieuwWachtwoord2 = '';
+    await loadTeamNames();
+    screen = 'login';
+    showToast('Nieuw wachtwoord opgeslagen');
   });
 }
 
@@ -2441,10 +2498,66 @@ function escapeAttr(str){ return escapeHtml(str); }
       document.body.classList.add('dark');
     }
   }catch(e){}
+  // Hash uitlezen vóór createClient: die haalt de resetlink zelf uit de adresbalk.
+  const hashParams = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+  const searchParams = new URLSearchParams(location.search);
+  const recoveryInHash = hashParams.get('type') === 'recovery';
   initSupabase();
+  // De resetmail van Supabase opent nu http://localhost:3000. Staat de app daar
+  // lokaal open, stuur de sessie dan door naar de echte site i.p.v. een leeg scherm.
+  if((location.hostname === 'localhost' || location.hostname === '127.0.0.1') && location.port === '3000' && recoveryInHash){
+    location.replace(PUBLIC_APP_URL + location.hash);
+    return;
+  }
+
+  supabaseClient.auth.onAuthStateChange((event, session) => {
+    if(event === 'PASSWORD_RECOVERY'){
+      recoveryEmail = session?.user?.email || recoveryEmail;
+      screen = 'nieuw-wachtwoord';
+      render();
+    }
+  });
+
+  if(searchParams.get('type') === 'recovery' && searchParams.get('token_hash')){
+    screen = 'nieuw-wachtwoord';
+    render();
+    const { data, error } = await supabaseClient.auth.verifyOtp({
+      token_hash: searchParams.get('token_hash'),
+      type: 'recovery',
+    });
+    if(error || !data || !data.session){
+      screen = 'wachtwoord';
+      render();
+      showToast('De resetlink is ongeldig of verlopen. Vraag een nieuwe aan.');
+      return;
+    }
+    recoveryEmail = data.session.user?.email || '';
+    history.replaceState(null, '', location.pathname);
+    screen = 'nieuw-wachtwoord';
+    render();
+    return;
+  }
+
+  if(recoveryInHash){
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if(!session){
+      screen = 'wachtwoord';
+      render();
+      showToast('De resetlink is ongeldig of verlopen. Vraag een nieuwe aan.');
+      return;
+    }
+    recoveryEmail = session.user?.email || '';
+    history.replaceState(null, '', location.pathname + location.search);
+    screen = 'nieuw-wachtwoord';
+    render();
+    return;
+  }
+
+  const authError = hashParams.get('error_description') || searchParams.get('error_description');
   const { data: { session } } = await supabaseClient.auth.getSession();
   if(session){ await loadTeamNames(); screen = 'login'; }
   render();
+  if(authError) showToast('De resetlink werkte niet. Vraag een nieuwe aan.');
 })();
 </script>
 </body>
