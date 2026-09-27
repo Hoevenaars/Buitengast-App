@@ -284,7 +284,6 @@ const ROLES = [
   {key:'Diner', emoji:'🍽️'}, {key:'Administratie', emoji:'🖊️'}, {key:'Admin', emoji:'🔑'}
 ];
 const CODE_STANDARD = '2709';
-const CODE_ADMIN = '5611';
 const CODE_ADMINISTRATIE = '6575';
 
 /* ======================= SUPABASE CONFIGURATIE ======================= */
@@ -349,7 +348,9 @@ let nieuwWachtwoord2 = '';
 let recoveryEmail = '';
 /* Vast e-mailadres van het gedeelde toegangsaccount — dit maak je zelf aan in Supabase (zie handleiding) */
 const ACCESS_EMAIL = 'toegang@buitengast-incheck.nl';
-/* Resetmails moeten hier landen. Supabase Site URL stond op localhost, dan opent de link nergens. */
+/* Account van de resetmail. Het wachtwoord daarvan opent de rol Admin en het tabblad Beheer. */
+const BEHEER_EMAIL = 'nhoevenaars@gmail.com';
+/* Resetmails moeten hier landen. */
 const PUBLIC_APP_URL = 'https://hoevenaars.github.io/Buitengast-App/';
 let tab = 'zoeken';       // zoeken | diner | log
 let searchQuery = '';
@@ -590,11 +591,10 @@ function renderWachtwoord(){
     <label class="field-label">Toegangswachtwoord</label>
     <input type="password" id="wachtwoord-input" placeholder="Wachtwoord" value="${escapeAttr(wachtwoordDraft)}" autofocus>
     <button class="btn btn-primary" id="wachtwoord-submit" style="margin-top:18px;">Ontgrendelen</button>
-    <button class="btn btn-secondary" id="wachtwoord-vergeten" style="margin-top:10px;">Wachtwoord vergeten</button>
+    <button class="btn btn-secondary" id="wachtwoord-vergeten" style="margin-top:10px;">Beheerwachtwoord vergeten</button>
   </div>
   <p style="text-align:center;color:var(--text-medium);font-size:14px;">
-    Dit wachtwoord beschermt alle gegevens. Deel het alleen met het team.
-    Een vergeten wachtwoord sturen we naar het toegangsaccount, niet naar een persoonlijk adres.
+    Dit wachtwoord is voor het hele team. Beheerwachtwoord vergeten stuurt een mail waarmee je een nieuw wachtwoord voor Beheer kiest.
   </p>`;
 }
 function attachWachtwoordHandlers(){
@@ -619,31 +619,32 @@ function attachWachtwoordHandlers(){
   document.getElementById('wachtwoord-vergeten').addEventListener('click', async ()=>{
     const btn = document.getElementById('wachtwoord-vergeten');
     btn.disabled = true; btn.textContent = 'Bezig…';
-    const { error } = await supabaseClient.auth.resetPasswordForEmail(ACCESS_EMAIL, { redirectTo: PUBLIC_APP_URL });
-    btn.disabled = false; btn.textContent = 'Wachtwoord vergeten';
+    const { error } = await supabaseClient.auth.resetPasswordForEmail(BEHEER_EMAIL, { redirectTo: PUBLIC_APP_URL });
+    btn.disabled = false; btn.textContent = 'Beheerwachtwoord vergeten';
     if(error){ showToast('Fout: ' + error.message); return; }
-    showToast('Resetmail verstuurd naar het toegangsaccount');
+    showToast('Mail verstuurd. Open de link en kies een nieuw beheerwachtwoord.');
   });
 }
 
+function isBeheerReset(){
+  return (recoveryEmail || '').toLowerCase() === BEHEER_EMAIL.toLowerCase();
+}
 function renderNieuwWachtwoord(){
-  const accountRegel = recoveryEmail
-    ? `Nieuw wachtwoord voor <b>${escapeHtml(recoveryEmail)}</b>.`
-    : 'Kies een nieuw wachtwoord voor dit account.';
-  const anderAccount = recoveryEmail && recoveryEmail.toLowerCase() !== ACCESS_EMAIL.toLowerCase();
+  const voorBeheer = isBeheerReset();
   return `
-  <div class="login-hero"><img src="${LOGO_DATA_URI}" alt="Buitengast" style="height:70px;margin-bottom:10px;"><p>Nieuw wachtwoord</p></div>
+  <div class="login-hero"><img src="${LOGO_DATA_URI}" alt="Buitengast" style="height:70px;margin-bottom:10px;"><p>${voorBeheer ? 'Nieuw wachtwoord voor Beheer' : 'Nieuw wachtwoord'}</p></div>
   <div class="card">
-    <p style="margin-top:0;color:var(--text-medium);font-size:15px;">${accountRegel}</p>
+    <p style="margin-top:0;color:var(--text-medium);font-size:15px;">
+      ${voorBeheer
+        ? 'Kies het wachtwoord voor de rol Admin. Daarmee open je het tabblad Beheer.'
+        : 'Kies een nieuw toegangswachtwoord voor het team.'}
+    </p>
     <label class="field-label">Nieuw wachtwoord</label>
-    <input type="password" id="nieuw-wachtwoord" placeholder="Minimaal 6 tekens" value="${escapeAttr(nieuwWachtwoord)}" autofocus>
+    <input type="password" id="nieuw-wachtwoord" placeholder="Minimaal 6 tekens" value="${escapeAttr(nieuwWachtwoord)}" autofocus autocomplete="new-password">
     <label class="field-label" style="margin-top:14px;">Herhaal wachtwoord</label>
-    <input type="password" id="nieuw-wachtwoord-2" placeholder="Nog een keer" value="${escapeAttr(nieuwWachtwoord2)}">
+    <input type="password" id="nieuw-wachtwoord-2" placeholder="Nog een keer" value="${escapeAttr(nieuwWachtwoord2)}" autocomplete="new-password">
     <button class="btn btn-primary" id="nieuw-wachtwoord-opslaan" style="margin-top:18px;">Wachtwoord opslaan</button>
-  </div>
-  ${anderAccount ? `<p style="text-align:center;color:var(--text-medium);font-size:14px;">
-    Het toegangswachtwoord van de app hoort bij ${escapeHtml(ACCESS_EMAIL)}. Dit scherm wijzigt alleen het account van de resetlink.
-  </p>` : ''}`;
+  </div>`;
 }
 function attachNieuwWachtwoordHandlers(){
   document.getElementById('nieuw-wachtwoord').addEventListener('input', e=>{ nieuwWachtwoord = e.target.value; });
@@ -653,17 +654,31 @@ function attachNieuwWachtwoordHandlers(){
     if(nieuwWachtwoord !== nieuwWachtwoord2){ showToast('De wachtwoorden komen niet overeen'); return; }
     const btn = document.getElementById('nieuw-wachtwoord-opslaan');
     btn.disabled = true; btn.textContent = 'Bezig…';
-    const { error } = await supabaseClient.auth.updateUser({ password: nieuwWachtwoord });
-    if(error){
-      btn.disabled = false; btn.textContent = 'Wachtwoord opslaan';
-      showToast('Fout: ' + error.message);
-      return;
+    if(isBeheerReset()){
+      const { error } = await supabaseClient.rpc('beheer_wachtwoord_zetten', { pw: nieuwWachtwoord, huidig: null });
+      if(error){
+        btn.disabled = false; btn.textContent = 'Wachtwoord opslaan';
+        showToast('Fout: ' + error.message);
+        return;
+      }
+    } else {
+      const { error } = await supabaseClient.auth.updateUser({ password: nieuwWachtwoord });
+      if(error){
+        btn.disabled = false; btn.textContent = 'Wachtwoord opslaan';
+        showToast('Fout: ' + error.message);
+        return;
+      }
     }
     nieuwWachtwoord = '';
     nieuwWachtwoord2 = '';
     await loadTeamNames();
+    if(isBeheerReset()){
+      loginDraft.naam = 'Nick';
+      loginDraft.rol = 'Admin';
+      loginDraft.code = '';
+    }
     screen = 'login';
-    showToast('Nieuw wachtwoord opgeslagen');
+    showToast(isBeheerReset() ? 'Beheerwachtwoord opgeslagen. Vul het hieronder nog een keer in.' : 'Nieuw wachtwoord opgeslagen');
   });
 }
 
@@ -683,14 +698,18 @@ function renderLogin(){
         <span class="emoji">${r.emoji}</span>${r.key}</div>`).join('')}
     </div>
     ` : ''}
-    ${(loginDraft.rol==='Admin' || loginDraft.rol==='Administratie') ? `
+    ${loginDraft.rol==='Admin' ? `
+    <label class="field-label">Beheerwachtwoord</label>
+    <input type="password" id="login-code" placeholder="Wachtwoord" autocomplete="current-password" value="${escapeAttr(loginDraft.code)}">
+    ` : ''}
+    ${loginDraft.rol==='Administratie' ? `
     <label class="field-label">Toegangscode</label>
     <input type="password" id="login-code" inputmode="numeric" placeholder="Code" value="${escapeAttr(loginDraft.code)}">
     ` : ''}
     <button class="btn btn-primary" id="login-submit" style="margin-top:18px;">Aan de slag</button>
   </div>
   <p style="text-align:center;color:var(--text-medium);font-size:14px;">
-    Alleen Admin en Administratie hebben een toegangscode nodig
+    Admin opent Beheer met het beheerwachtwoord. Administratie heeft een toegangscode.
   </p>`;
 }
 function attachLoginHandlers(){
@@ -709,7 +728,10 @@ function attachLoginHandlers(){
   document.getElementById('login-submit').addEventListener('click', async ()=>{
     if(!loginDraft.naam.trim()){ showToast('Kies je naam'); return; }
     if(!loginDraft.rol){ showToast('Kies een rol'); return; }
-    if(loginDraft.rol==='Admin' && loginDraft.code.trim() !== CODE_ADMIN){ showToast('Onjuiste code'); return; }
+    if(loginDraft.rol==='Admin'){
+      const { data, error } = await supabaseClient.rpc('beheer_wachtwoord_klopt', { pw: loginDraft.code.trim() });
+      if(error || data !== true){ showToast('Onjuist beheerwachtwoord'); return; }
+    }
     if(loginDraft.rol==='Administratie' && loginDraft.code.trim() !== CODE_ADMINISTRATIE){ showToast('Onjuiste code'); return; }
     currentUser = { naam: loginDraft.naam.trim(), rol: loginDraft.rol };
     screen='main'; tab = (loginDraft.rol==='Diner') ? 'diner' : 'zoeken'; activeBookingId=null;
@@ -2109,6 +2131,9 @@ function commitPlekVanuitKaart(bookingId, code){
 
 /* ======================= BEHEER TAB (Admin) ======================= */
 let nieuweNaamDraft = '';
+let beheerHuidig = '';
+let beheerNieuw = '';
+let beheerNieuw2 = '';
 function renderBeheer(){
   // Kleine statistieken-samenvatting, handig voor Admin om in één oogopslag de status te zien
   const totaalBoekingen = BOOKINGS.length;
@@ -2148,6 +2173,18 @@ function renderBeheer(){
   }
 
   return `
+  <div class="card">
+    <div class="section-title">🔑 Beheerwachtwoord</div>
+    <p style="margin-top:0;color:var(--text-medium);font-size:15px;">Dit wachtwoord opent de rol Admin.</p>
+    <label class="field-label">Huidig wachtwoord</label>
+    <input type="password" id="beheer-huidig" autocomplete="current-password" value="${escapeAttr(beheerHuidig)}">
+    <label class="field-label" style="margin-top:14px;">Nieuw wachtwoord</label>
+    <input type="password" id="beheer-nieuw" autocomplete="new-password" placeholder="Minimaal 6 tekens" value="${escapeAttr(beheerNieuw)}">
+    <label class="field-label" style="margin-top:14px;">Herhaal wachtwoord</label>
+    <input type="password" id="beheer-nieuw2" autocomplete="new-password" value="${escapeAttr(beheerNieuw2)}">
+    <button class="btn btn-secondary" id="beheer-wachtwoord-opslaan" style="margin-top:18px;">Wachtwoord wijzigen</button>
+  </div>
+
   <div class="card">
     <div class="section-title">📊 Overzicht</div>
     <div class="info-grid">
@@ -2210,6 +2247,24 @@ function renderBeheer(){
 }
 
 function attachBeheerHandlers(){
+  const huidigInput = document.getElementById('beheer-huidig');
+  const nieuwInput = document.getElementById('beheer-nieuw');
+  const nieuw2Input = document.getElementById('beheer-nieuw2');
+  if(huidigInput) huidigInput.addEventListener('input', e=>{ beheerHuidig = e.target.value; });
+  if(nieuwInput) nieuwInput.addEventListener('input', e=>{ beheerNieuw = e.target.value; });
+  if(nieuw2Input) nieuw2Input.addEventListener('input', e=>{ beheerNieuw2 = e.target.value; });
+  const wachtwoordBtn = document.getElementById('beheer-wachtwoord-opslaan');
+  if(wachtwoordBtn) wachtwoordBtn.addEventListener('click', async ()=>{
+    if(beheerNieuw.length < 6){ showToast('Gebruik minimaal 6 tekens'); return; }
+    if(beheerNieuw !== beheerNieuw2){ showToast('De wachtwoorden komen niet overeen'); return; }
+    wachtwoordBtn.disabled = true; wachtwoordBtn.textContent = 'Bezig…';
+    const { error } = await supabaseClient.rpc('beheer_wachtwoord_zetten', { pw: beheerNieuw, huidig: beheerHuidig });
+    wachtwoordBtn.disabled = false; wachtwoordBtn.textContent = 'Wachtwoord wijzigen';
+    if(error){ showToast('Fout: ' + error.message); return; }
+    beheerHuidig = ''; beheerNieuw = ''; beheerNieuw2 = '';
+    showToast('Beheerwachtwoord gewijzigd');
+  });
+
   const nameInput = document.getElementById('nieuwe-naam-input');
   if(nameInput) nameInput.addEventListener('input', e=>{ nieuweNaamDraft = e.target.value; });
 
